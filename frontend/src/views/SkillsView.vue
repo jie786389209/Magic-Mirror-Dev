@@ -1,54 +1,86 @@
 <script setup lang="ts">
+import { ref, onMounted } from 'vue'
+
+interface SkillDef {
+  name: string
+  description: string
+  triggers: string[]
+  enabled: boolean
+  params: Record<string, string>
+  steps: Array<{ type: string; tool?: string; prompt?: string }>
+}
+
+const skills = ref<SkillDef[]>([])
+const loading = ref(true)
+
+onMounted(async () => {
+  try {
+    const res = await fetch('/api/skills')
+    skills.value = await res.json()
+  } catch { /* noop */ }
+  loading.value = false
+})
 </script>
 
 <template>
-  <div class="placeholder-view">
-    <div class="placeholder-icon">
-      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
-        <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
-        <line x1="6" y1="6" x2="6.01" y2="6" />
-        <line x1="6" y1="18" x2="6.01" y2="18" />
-      </svg>
+  <div class="skills-view">
+    <h1>Skill 管理</h1>
+    <p class="subtitle">声明式工作流，组合工具调用与 AI 追问</p>
+
+    <div v-if="loading" class="loading">加载中...</div>
+
+    <div v-else class="skill-grid">
+      <div v-for="s in skills" :key="s.name" class="skill-card">
+        <div class="card-top">
+          <span class="skill-name">🧩 {{ s.name }}</span>
+          <span class="badge" :class="{ active: s.enabled }">{{ s.enabled ? '启用' : '停用' }}</span>
+        </div>
+        <p class="skill-desc">{{ s.description }}</p>
+
+        <div class="skill-meta">
+          <div class="meta-row">
+            <span class="meta-label">触发词</span>
+            <span class="meta-val">{{ s.triggers?.join(', ') }}</span>
+          </div>
+          <div v-if="s.params && Object.keys(s.params).length" class="meta-row">
+            <span class="meta-label">参数</span>
+            <span class="meta-val">
+              <code v-for="(desc, key) in s.params" :key="key">\{{ key }}: {{ desc }} </code>
+            </span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label">步骤</span>
+            <span class="meta-val">
+              <span v-for="(step, i) in s.steps" :key="i" class="step-tag">
+                {{ step.type === 'tool' ? '🔧 ' + step.tool : '💬 AI 追问' }}
+                <span v-if="i < s.steps.length - 1"> → </span>
+              </span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="skills.length === 0" class="empty">暂无 Skill，在 resources/skills/ 下添加 JSON 配置</div>
     </div>
-    <h2>Skill</h2>
-    <p>自定义 Skill 工作流，自动化复杂任务</p>
-    <span class="tag">开发中，将在 Skill 模块上线</span>
   </div>
 </template>
 
 <style scoped>
-.placeholder-view {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  color: var(--text-muted);
-  gap: var(--space-3);
-}
-
-.placeholder-icon {
-  color: var(--text-subtle);
-  margin-bottom: var(--space-2);
-}
-
-.placeholder-view h2 {
-  font-size: var(--text-xl);
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.placeholder-view p {
-  font-size: var(--text-base);
-}
-
-.tag {
-  font-size: var(--text-xs);
-  padding: 2px 10px;
-  border-radius: 10px;
-  background: var(--bg-card);
-  color: var(--text-subtle);
-  margin-top: var(--space-2);
-}
+.skills-view { padding: var(--space-8); max-width: 800px; margin: 0 auto; height: 100%; overflow-y: auto; }
+.subtitle { font-size: var(--text-base); color: var(--text-muted); margin-bottom: var(--space-6); }
+.loading { color: var(--text-muted); }
+.skill-grid { display: flex; flex-direction: column; gap: var(--space-4); }
+.skill-card { background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: var(--space-4); }
+.card-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-2); }
+.skill-name { font-weight: 600; color: var(--text-primary); }
+.badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--bg-card); color: var(--text-subtle); }
+.badge.active { background: var(--accent-glow); color: var(--accent); }
+.skill-desc { font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-3); }
+.skill-meta { display: flex; flex-direction: column; gap: var(--space-1); }
+.meta-row { display: flex; gap: var(--space-2); font-size: var(--text-xs); }
+.meta-label { color: var(--text-subtle); min-width: 48px; }
+.meta-val { color: var(--text-muted); }
+.meta-val code { font-size: 11px; }
+.step-tag { color: var(--accent-link); }
+.empty { text-align: center; padding: var(--space-10); color: var(--text-muted); }
 </style>

@@ -1,0 +1,20 @@
+{
+  "name": "code-review",
+  "description": "对指定代码文件进行审查，发现潜在问题并给出改进建议",
+  "triggers": ["审查", "review", "代码审查", "code review", "检查代码"],
+  "enabled": true,
+  "params": {
+    "file": "要审查的文件路径"
+  },
+  "steps": [
+    {
+      "type": "tool",
+      "tool": "read_file",
+      "params": { "path": "{{file}}" }
+    },
+    {
+      "type": "prompt",
+      "prompt": "请对以上代码进行全面审查，从以下几个方面分析：\n1. 潜在 bug 和逻辑错误\n2. 性能问题和优化建议\n3. 安全漏洞\n4. 代码风格和可读性\n5. 最佳实践建议\n\n请给出具体的修改建议。"
+    }
+  ]
+}

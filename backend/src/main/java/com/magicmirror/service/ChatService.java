@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.magicmirror.config.DeepSeekProperties;
 import com.magicmirror.model.ChatMessage;
+import com.magicmirror.skill.SkillEngine;
 import com.magicmirror.tool.api.ToolExecutor;
 import com.magicmirror.tool.api.ToolRegistry;
 import lombok.extern.slf4j.Slf4j;
@@ -25,14 +26,17 @@ public class ChatService {
     private final DeepSeekProperties properties;
     private final ToolRegistry toolRegistry;
     private final ToolExecutor toolExecutor;
+    private final SkillEngine skillEngine;
     private final ObjectMapper objectMapper;
     private final RestTemplate restTemplate;
 
     public ChatService(DeepSeekProperties properties, ToolRegistry toolRegistry,
-                       ToolExecutor toolExecutor, ObjectMapper objectMapper) {
+                       ToolExecutor toolExecutor, SkillEngine skillEngine,
+                       ObjectMapper objectMapper) {
         this.properties = properties;
         this.toolRegistry = toolRegistry;
         this.toolExecutor = toolExecutor;
+        this.skillEngine = skillEngine;
         this.objectMapper = objectMapper;
         this.restTemplate = createRestTemplate();
     }
@@ -48,6 +52,17 @@ public class ChatService {
      * 流式对话（支持 Function Calling）
      */
     public void chatStream(String userMessage, List<ChatMessage> history, Consumer<String> onChunk) {
+        // Step 0: 尝试匹配 Skill
+        var matchedSkill = skillEngine.match(userMessage);
+        if (matchedSkill.isPresent()) {
+            var skill = matchedSkill.get();
+            log.info("Skill matched: {}", skill.getName());
+            onChunk.accept("[SKILL]" + skill.getName() + "[/SKILL]");
+            var params = skillEngine.extractParams(skill, userMessage);
+            skillEngine.execute(skill, params, onChunk, null);
+            return;
+        }
+
         List<Map<String, Object>> messages = buildMessages(userMessage, history);
 
         // Step 1: 首次调用，检测是否需要工具

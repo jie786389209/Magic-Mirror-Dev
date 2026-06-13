@@ -3,11 +3,15 @@ package com.magicmirror.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.magicmirror.model.ChatRequest;
 import com.magicmirror.service.ChatService;
+import com.magicmirror.skill.SkillEngine;
+import com.magicmirror.skill.SkillDefinition;
 import com.magicmirror.tool.api.ToolRegistry;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.Collection;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
@@ -23,12 +27,15 @@ public class ChatController {
 
     private final ChatService chatService;
     private final ToolRegistry toolRegistry;
+    private final SkillEngine skillEngine;
     private final ObjectMapper objectMapper;
     private final ExecutorService executor = Executors.newCachedThreadPool();
 
-    public ChatController(ChatService chatService, ToolRegistry toolRegistry, ObjectMapper objectMapper) {
+    public ChatController(ChatService chatService, ToolRegistry toolRegistry,
+                          SkillEngine skillEngine, ObjectMapper objectMapper) {
         this.chatService = chatService;
         this.toolRegistry = toolRegistry;
+        this.skillEngine = skillEngine;
         this.objectMapper = objectMapper;
     }
 
@@ -74,5 +81,10 @@ public class ChatController {
     @GetMapping("/tools")
     public List<Map<String, Object>> listTools() {
         return toolRegistry.toDeepSeekTools();
+    }
+
+    @GetMapping("/skills")
+    public Collection<SkillDefinition> listSkills() {
+        return skillEngine.getAll();
     }
 }

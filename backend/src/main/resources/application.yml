@@ -10,7 +10,7 @@ deepseek:
   temperature: 0.7
 
 tavily:
-  api-key: ${TAVILY_API_KEY:}
+  api-key: ${TAVILY_API_KEY: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}
 
 spring:
   main:

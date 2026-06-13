@@ -1,0 +1,20 @@
+{
+  "name": "explain-code",
+  "description": "读取并解释代码文件的逻辑和结构",
+  "triggers": ["解释代码", "分析代码", "这段代码什么意思", "explain code"],
+  "enabled": true,
+  "params": {
+    "file": "要解释的文件路径"
+  },
+  "steps": [
+    {
+      "type": "tool",
+      "tool": "read_file",
+      "params": { "path": "{{file}}" }
+    },
+    {
+      "type": "prompt",
+      "prompt": "请用通俗易懂的方式解释以上代码：\n1. 整体功能概述\n2. 关键逻辑流程\n3. 重要的类和函数说明\n4. 依赖关系"
+    }
+  ]
+}

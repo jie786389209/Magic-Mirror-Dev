@@ -63,7 +63,8 @@ public class WebSearchTool implements Tool {
         int limit = Math.min(arguments.containsKey("limit")
                 ? ((Number) arguments.get("limit")).intValue() : 5, 10);
 
-        log.info("Tavily search: query={}, limit={}", query, limit);
+        log.info("Tavily search: query={}, limit={}, key={}...", query, limit,
+                apiKey.isEmpty() ? "<EMPTY>" : apiKey.substring(0, Math.min(8, apiKey.length())));
 
         try {
             Map<String, Object> body = new LinkedHashMap<>();
@@ -73,11 +74,11 @@ public class WebSearchTool implements Tool {
             body.put("search_depth", "basic");
 
             String json = objectMapper.writeValueAsString(body);
+            log.info("Tavily request body: {}", json);
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create("https://api.tavily.com/search"))
                     .header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer " + apiKey)
                     .timeout(Duration.ofSeconds(20))
                     .POST(HttpRequest.BodyPublishers.ofString(json))
                     .build();

@@ -1,0 +1,20 @@
+{
+  "name": "search-analyze",
+  "description": "搜索互联网并分析结果，生成总结报告",
+  "triggers": ["搜索并分析", "调研", "查一下并总结", "research"],
+  "enabled": true,
+  "params": {
+    "topic": "要调研的主题"
+  },
+  "steps": [
+    {
+      "type": "tool",
+      "tool": "web_search",
+      "params": { "query": "{{topic}}", "limit": 5 }
+    },
+    {
+      "type": "prompt",
+      "prompt": "请根据以上搜索结果，生成一份简洁的调研总结，包含：\n1. 核心发现\n2. 关键信息摘要\n3. 建议的下一步行动"
+    }
+  ]
+}
