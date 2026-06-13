@@ -1,28 +1,27 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 
-interface ToolDef {
-  type: string
-  function: {
-    name: string
-    description: string
-    parameters: Record<string, unknown>
-  }
+interface ToolState {
+  name: string
+  description: string
+  enabled: boolean
 }
 
-const tools = ref<ToolDef[]>([])
+const tools = ref<ToolState[]>([])
 const loading = ref(true)
 
-onMounted(async () => {
-  try {
-    const res = await fetch('/api/tools')
-    tools.value = await res.json()
-  } catch (e) {
-    console.error('Failed to fetch tools', e)
-  } finally {
-    loading.value = false
-  }
-})
+onMounted(loadTools)
+
+async function loadTools() {
+  try { const r = await fetch('/api/tools'); tools.value = await r.json() } catch {}
+  loading.value = false
+}
+
+async function toggleTool(name: string, enabled: boolean) {
+  const url = `/api/tools/${name}/${enabled ? 'enable' : 'disable'}`
+  await fetch(url, { method: 'POST' })
+  loadTools()
+}
 </script>
 
 <template>
@@ -35,16 +34,15 @@ onMounted(async () => {
     <div v-if="loading" class="loading">加载中...</div>
 
     <div v-else class="tools-grid">
-      <div v-for="tool in tools" :key="tool.function.name" class="tool-card">
+      <div v-for="tool in tools" :key="tool.name" class="tool-card">
         <div class="tool-header">
-          <span class="tool-name">🔧 {{ tool.function.name }}</span>
-          <span class="tool-status active">已启用</span>
+          <span class="tool-name">🔧 {{ tool.name }}</span>
+          <label class="toggle-switch">
+            <input type="checkbox" :checked="tool.enabled" @change="toggleTool(tool.name, !tool.enabled)" />
+            <span class="slider" />
+          </label>
         </div>
-        <p class="tool-desc">{{ tool.function.description }}</p>
-        <details class="tool-params">
-          <summary>参数 Schema</summary>
-          <pre>{{ JSON.stringify(tool.function.parameters, null, 2) }}</pre>
-        </details>
+        <p class="tool-desc">{{ tool.description }}</p>
       </div>
 
       <div v-if="tools.length === 0" class="empty">
@@ -109,39 +107,18 @@ onMounted(async () => {
   font-family: var(--font-mono);
 }
 
-.tool-status {
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 10px;
-}
-.tool-status.active {
-  background: var(--accent-glow);
-  color: var(--accent);
-}
-
 .tool-desc {
   font-size: var(--text-sm);
   color: var(--text-muted);
-  margin-bottom: var(--space-2);
 }
 
-.tool-params {
-  font-size: var(--text-xs);
-  color: var(--text-subtle);
-}
-.tool-params summary {
-  cursor: pointer;
-  color: var(--accent-link);
-}
-.tool-params pre {
-  background: var(--code-bg);
-  border-radius: var(--radius-md);
-  padding: var(--space-2);
-  margin-top: var(--space-1);
-  overflow-x: auto;
-  font-size: 11px;
-  color: var(--text-muted);
-}
+/* Toggle Switch */
+.toggle-switch { position: relative; display: inline-block; width: 40px; height: 22px; flex-shrink: 0; }
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: var(--bg-card); border-radius: 22px; transition: 0.2s; }
+.slider::before { content: ""; position: absolute; height: 16px; width: 16px; left: 3px; bottom: 3px; background: var(--text-subtle); border-radius: 50%; transition: 0.2s; }
+.toggle-switch input:checked + .slider { background: var(--accent); }
+.toggle-switch input:checked + .slider::before { transform: translateX(18px); background: #fff; }
 
 .empty {
   text-align: center;

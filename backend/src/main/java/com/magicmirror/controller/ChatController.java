@@ -82,7 +82,19 @@ public class ChatController {
 
     @GetMapping("/tools")
     public List<Map<String, Object>> listTools() {
-        return toolRegistry.toDeepSeekTools();
+        return toolRegistry.getToolStates();
+    }
+
+    @PostMapping("/tools/{name}/enable")
+    public Map<String, String> enableTool(@PathVariable String name) {
+        toolRegistry.enable(name);
+        return Map.of("status", "ok", "name", name, "enabled", "true");
+    }
+
+    @PostMapping("/tools/{name}/disable")
+    public Map<String, String> disableTool(@PathVariable String name) {
+        toolRegistry.disable(name);
+        return Map.of("status", "ok", "name", name, "enabled", "false");
     }
 
     @GetMapping("/skills")

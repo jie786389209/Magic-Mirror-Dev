@@ -6,14 +6,12 @@ import org.springframework.stereotype.Component;
 
 import java.util.*;
 
-/**
- * 工具注册中心 —— 管理所有可用工具
- */
 @Slf4j
 @Component
 public class ToolRegistry {
 
     private final Map<String, Tool> tools = new LinkedHashMap<>();
+    private final Set<String> disabledTools = new LinkedHashSet<>();
     private final List<Tool> toolList;
 
     public ToolRegistry(List<Tool> toolList) {
@@ -36,12 +34,37 @@ public class ToolRegistry {
         return Collections.unmodifiableCollection(tools.values());
     }
 
-    /**
-     * 生成 DeepSeek Function Calling 格式的工具列表
-     */
+    public boolean isEnabled(String name) {
+        return !disabledTools.contains(name);
+    }
+
+    public void enable(String name) {
+        disabledTools.remove(name);
+        log.info("Tool enabled: {}", name);
+    }
+
+    public void disable(String name) {
+        disabledTools.add(name);
+        log.info("Tool disabled: {}", name);
+    }
+
+    public List<Map<String, Object>> getToolStates() {
+        List<Map<String, Object>> states = new ArrayList<>();
+        for (Tool tool : tools.values()) {
+            states.add(Map.of(
+                    "name", tool.getName(),
+                    "description", tool.getDescription(),
+                    "enabled", isEnabled(tool.getName())
+            ));
+        }
+        return states;
+    }
+
+    /** 生成 DeepSeek Function Calling 格式的工具列表（仅启用工具） */
     public List<Map<String, Object>> toDeepSeekTools() {
         List<Map<String, Object>> result = new ArrayList<>();
         for (Tool tool : tools.values()) {
+            if (!isEnabled(tool.getName())) continue;
             Map<String, Object> func = new LinkedHashMap<>();
             func.put("type", "function");
             Map<String, Object> function = new LinkedHashMap<>();
