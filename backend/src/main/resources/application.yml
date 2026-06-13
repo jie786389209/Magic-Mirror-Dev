@@ -9,6 +9,9 @@ deepseek:
   reasoning-effort: high
   temperature: 0.7
 
+tavily:
+  api-key: ${TAVILY_API_KEY:}
+
 spring:
   main:
     banner-mode: off
