@@ -26,4 +26,7 @@ public class ChatRequest {
     private Double temperature;
 
     private Integer maxTokens;
+
+    @Builder.Default
+    private boolean ragEnabled = false; // 是否启用知识库检索
 }

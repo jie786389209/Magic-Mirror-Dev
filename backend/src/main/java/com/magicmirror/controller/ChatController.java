@@ -48,6 +48,7 @@ public class ChatController {
                 chatService.chatStream(
                         request.getMessage(),
                         request.getHistory(),
+                        request.isRagEnabled(),
                         chunk -> {
                             try {
                                 emitter.send(SseEmitter.event().name("chunk")

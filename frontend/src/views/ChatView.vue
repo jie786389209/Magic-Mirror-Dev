@@ -7,6 +7,7 @@ import { streamChat } from '@/api/chat'
 
 const chatStore = useChatStore()
 const messageListRef = ref<InstanceType<typeof MessageList> | null>(null)
+const ragEnabled = ref(false)
 
 let abortController: AbortController | null = null
 
@@ -32,6 +33,7 @@ async function handleSend(content: string) {
   await streamChat(
     content,
     history,
+    ragEnabled.value,
     // onChunk
     (chunk) => {
       chatStore.updateMessage(aiMsg.id, chatStore.messages.find((m) => m.id === aiMsg.id)!.content + chunk)
@@ -72,6 +74,11 @@ function handleStop() {
       ref="messageListRef"
       :messages="chatStore.messages"
     />
+    <div class="rag-bar">
+      <button class="rag-toggle" :class="{ active: ragEnabled }" @click="ragEnabled = !ragEnabled" :title="ragEnabled ? '已开启知识库检索' : '点击开启知识库检索'">
+        📚 知识库 {{ ragEnabled ? 'ON' : 'OFF' }}
+      </button>
+    </div>
     <ChatInput
       :is-loading="chatStore.isLoading || !!chatStore.currentStreamingId"
       @send="handleSend"
@@ -87,4 +94,8 @@ function handleStop() {
   height: 100%;
   overflow: hidden;
 }
+.rag-bar { display: flex; justify-content: center; padding: 0 var(--space-6) var(--space-1); }
+.rag-toggle { font-size: var(--text-xs); padding: 2px 12px; border-radius: 12px; border: 1px solid var(--border-default); background: transparent; color: var(--text-subtle); cursor: pointer; transition: all var(--transition-fast); }
+.rag-toggle:hover { border-color: var(--accent); color: var(--text-muted); }
+.rag-toggle.active { background: var(--accent-glow); border-color: var(--accent); color: var(--accent); }
 </style>

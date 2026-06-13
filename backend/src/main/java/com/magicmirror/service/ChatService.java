@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.magicmirror.config.DeepSeekProperties;
 import com.magicmirror.memory.MemoryService;
 import com.magicmirror.model.ChatMessage;
+import com.magicmirror.rag.DocumentService;
 import com.magicmirror.skill.SkillEngine;
 import com.magicmirror.tool.api.ToolExecutor;
 import com.magicmirror.tool.api.ToolRegistry;
@@ -29,17 +30,20 @@ public class ChatService {
     private final ToolExecutor toolExecutor;
     private final SkillEngine skillEngine;
     private final MemoryService memoryService;
+    private final DocumentService documentService;
     private final ObjectMapper objectMapper;
     private final RestTemplate restTemplate;
 
     public ChatService(DeepSeekProperties properties, ToolRegistry toolRegistry,
                        ToolExecutor toolExecutor, SkillEngine skillEngine,
-                       MemoryService memoryService, ObjectMapper objectMapper) {
+                       MemoryService memoryService, DocumentService documentService,
+                       ObjectMapper objectMapper) {
         this.properties = properties;
         this.toolRegistry = toolRegistry;
         this.toolExecutor = toolExecutor;
         this.skillEngine = skillEngine;
         this.memoryService = memoryService;
+        this.documentService = documentService;
         this.objectMapper = objectMapper;
         this.restTemplate = createRestTemplate();
     }
@@ -54,7 +58,7 @@ public class ChatService {
     /**
      * 流式对话（支持 Function Calling）
      */
-    public void chatStream(String userMessage, List<ChatMessage> history, Consumer<String> onChunk) {
+    public void chatStream(String userMessage, List<ChatMessage> history, boolean ragEnabled, Consumer<String> onChunk) {
         // 用于缓冲 assistant 纯文本回复（不含标记和工具输出）
         StringBuilder assistantBuffer = new StringBuilder();
         Consumer<String> wrappedOnChunk = chunk -> {
@@ -97,7 +101,7 @@ public class ChatService {
             log.info("Auto-promoted to long-term memory: {}", userMessage.substring(0, Math.min(60, userMessage.length())));
         }
 
-        List<Map<String, Object>> messages = buildMessages(userMessage, history);
+        List<Map<String, Object>> messages = buildMessages(userMessage, history, ragEnabled);
 
         // Step 1: 首次调用，检测是否需要工具
         var toolCallResult = callWithTools(messages);
@@ -281,7 +285,7 @@ public class ChatService {
         }
     }
 
-    private List<Map<String, Object>> buildMessages(String userMessage, List<ChatMessage> history) {
+    private List<Map<String, Object>> buildMessages(String userMessage, List<ChatMessage> history, boolean ragEnabled) {
         List<Map<String, Object>> messages = new ArrayList<>();
 
         // 构建系统提示（含记忆上下文）
@@ -297,6 +301,21 @@ public class ChatService {
         if (!memoryCtx.isEmpty()) {
             systemPrompt = memoryCtx + "\n---\n" + systemPrompt;
         }
+
+        // RAG：仅在开关开启时检索
+        if (ragEnabled) {
+            var docResults = documentService.search(userMessage, 3);
+            if (!docResults.isEmpty()) {
+            StringBuilder ragCtx = new StringBuilder("## 参考文档\n");
+            for (var doc : docResults) {
+                ragCtx.append(String.format("- [%s] %s\n",
+                        doc.getOrDefault("filename", ""),
+                        doc.get("content")));
+            }
+                systemPrompt = ragCtx + "\n---\n" + systemPrompt;
+            }
+        }
+
         messages.add(Map.of("role", "system", "content", systemPrompt));
 
         for (ChatMessage msg : history) {
