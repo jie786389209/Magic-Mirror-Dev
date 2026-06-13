@@ -1,5 +1,6 @@
 package com.magicmirror.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.magicmirror.model.ChatRequest;
 import com.magicmirror.service.ChatService;
 import com.magicmirror.tool.api.ToolRegistry;
@@ -22,11 +23,13 @@ public class ChatController {
 
     private final ChatService chatService;
     private final ToolRegistry toolRegistry;
+    private final ObjectMapper objectMapper;
     private final ExecutorService executor = Executors.newCachedThreadPool();
 
-    public ChatController(ChatService chatService, ToolRegistry toolRegistry) {
+    public ChatController(ChatService chatService, ToolRegistry toolRegistry, ObjectMapper objectMapper) {
         this.chatService = chatService;
         this.toolRegistry = toolRegistry;
+        this.objectMapper = objectMapper;
     }
 
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -40,7 +43,8 @@ public class ChatController {
                         request.getHistory(),
                         chunk -> {
                             try {
-                                emitter.send(SseEmitter.event().name("chunk").data(chunk));
+                                emitter.send(SseEmitter.event().name("chunk")
+                                        .data(objectMapper.writeValueAsString(chunk)));
                             } catch (IOException e) {
                                 log.warn("SSE send failed: {}", e.getMessage());
                             }

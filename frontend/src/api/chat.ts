@@ -51,13 +51,18 @@ export async function streamChat(
           continue
         }
         if (line.startsWith('data:')) {
-          const data = line.slice(5).trim()
-          if (data === '[DONE]') {
+          const raw = line.slice(5).trim()
+          if (!raw) continue
+          if (raw === '"[DONE]"' || raw === '[DONE]') {
             onDone()
             return
           }
-          if (data) {
-            onChunk(data)
+          // JSON 解码（后端 JSON 包裹以避免换行截断）
+          try {
+            const parsed = JSON.parse(raw)
+            onChunk(typeof parsed === 'string' ? parsed : raw)
+          } catch {
+            onChunk(raw)
           }
         }
         if (line.startsWith('event:error')) {

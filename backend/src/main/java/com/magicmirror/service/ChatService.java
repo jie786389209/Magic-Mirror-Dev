@@ -110,6 +110,9 @@ public class ChatService {
         try {
             String response = restTemplate.postForObject(properties.getApiUrl(),
                     createHttpEntity(body), String.class);
+            log.info("DeepSeek tool-detect response:\n{}",
+                    objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(
+                            objectMapper.readTree(response)));
             JsonNode node = objectMapper.readTree(response);
             JsonNode choice = node.get("choices").get(0);
             JsonNode msg = choice.get("message");
@@ -153,6 +156,7 @@ public class ChatService {
         Map<String, Object> body = buildRequestBody(messages, true, enableThinking);
         log.info("DeepSeek stream request: {}", toPrettyJson(body));
 
+        StringBuilder streamLog = new StringBuilder();
         try {
             restTemplate.execute(properties.getApiUrl(), HttpMethod.POST,
                     request -> {
@@ -167,6 +171,9 @@ public class ChatService {
                             while ((line = reader.readLine()) != null) {
                                 if (line.startsWith("data: ")) {
                                     String data = line.substring(6);
+                                    if (streamLog.length() < 5_000) {
+                                        streamLog.append(data).append("\n");
+                                    }
                                     if ("[DONE]".equals(data)) break;
                                     try {
                                         JsonNode node = objectMapper.readTree(data);
@@ -192,6 +199,7 @@ public class ChatService {
                         }
                         return null;
                     });
+            log.info("DeepSeek stream response ({} chars):\n{}", streamLog.length(), streamLog);
         } catch (Exception e) {
             log.error("Stream error", e);
             onChunk.accept("\n[流式调用失败: " + e.getMessage() + "]");
@@ -204,7 +212,11 @@ public class ChatService {
             你是一个专业的 AI 开发助手，具备工具调用能力。
             当用户的问题需要计算、查询时间或搜索代码时，请主动调用对应工具。
             工具调用后，基于工具返回的结果给出清晰的回答。
-            请遵守 Markdown 格式规范，列表项独占一行、标题前后空行。
+            请严格遵守 Markdown 格式规范：
+            - 列表项（- 或 1.）独占一行
+            - 标题（## 等）前后有空行
+            - 表格每行必须独占一行，用换行符分隔
+            - 代码块前后有空行
             请用中文回答。"""));
 
         for (ChatMessage msg : history) {
