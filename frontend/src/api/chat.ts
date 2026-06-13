@@ -5,6 +5,7 @@ export async function streamChat(
   message: string,
   history: { role: string; content: string }[],
   ragEnabled: boolean,
+  sessionId: string,
   onChunk: (text: string) => void,
   onDone: () => void,
   onError: (err: string) => void,
@@ -20,6 +21,7 @@ export async function streamChat(
         message,
         history: history.map((h) => ({ role: h.role, content: h.content })),
         ragEnabled,
+        sessionId,
       }),
       signal,
     })

@@ -10,9 +10,21 @@ export interface ChatMessage {
 }
 
 export const useChatStore = defineStore('chat', () => {
+  const sessionId = ref(generateSessionId())
   const messages = ref<ChatMessage[]>([])
   const isLoading = ref(false)
   const currentStreamingId = ref<string | null>(null)
+
+  function generateSessionId(): string {
+    return 'sess_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8)
+  }
+
+  function newSession() {
+    sessionId.value = generateSessionId()
+    messages.value = []
+    currentStreamingId.value = null
+    isLoading.value = false
+  }
 
   function addMessage(msg: Omit<ChatMessage, 'id' | 'timestamp'>) {
     const message: ChatMessage = {
@@ -56,6 +68,8 @@ export const useChatStore = defineStore('chat', () => {
     addMessage,
     updateMessage,
     setStreaming,
+    sessionId,
+    newSession,
     clearMessages,
     removeMessage,
   }

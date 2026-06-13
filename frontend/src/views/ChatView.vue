@@ -34,6 +34,7 @@ async function handleSend(content: string) {
     content,
     history,
     ragEnabled.value,
+    chatStore.sessionId,
     // onChunk
     (chunk) => {
       chatStore.updateMessage(aiMsg.id, chatStore.messages.find((m) => m.id === aiMsg.id)!.content + chunk)
@@ -70,6 +71,10 @@ function handleStop() {
 
 <template>
   <div class="chat-view">
+    <div class="chat-top-bar">
+      <span class="session-label">{{ chatStore.sessionId.slice(0, 12) }}...</span>
+      <button class="new-chat-btn" @click="chatStore.newSession()">＋ 新建对话</button>
+    </div>
     <MessageList
       ref="messageListRef"
       :messages="chatStore.messages"
@@ -94,6 +99,10 @@ function handleStop() {
   height: 100%;
   overflow: hidden;
 }
+.chat-top-bar { display: flex; justify-content: space-between; align-items: center; padding: var(--space-2) var(--space-6); border-bottom: 1px solid var(--border-subtle); }
+.session-label { font-size: 11px; color: var(--text-subtle); font-family: var(--font-mono); }
+.new-chat-btn { font-size: var(--text-xs); padding: 2px 10px; border: 1px solid var(--border-default); border-radius: var(--radius-sm); background: transparent; color: var(--text-muted); cursor: pointer; }
+.new-chat-btn:hover { border-color: var(--accent); color: var(--accent); }
 .rag-bar { display: flex; justify-content: center; padding: 0 var(--space-6) var(--space-1); }
 .rag-toggle { font-size: var(--text-xs); padding: 2px 12px; border-radius: 12px; border: 1px solid var(--border-default); background: transparent; color: var(--text-subtle); cursor: pointer; transition: all var(--transition-fast); }
 .rag-toggle:hover { border-color: var(--accent); color: var(--text-muted); }

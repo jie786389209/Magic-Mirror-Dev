@@ -5,8 +5,7 @@ import com.magicmirror.memory.MemoryService;
 import com.magicmirror.model.ChatMessage;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 @RestController
 @RequestMapping("/api/memory")
@@ -21,6 +20,17 @@ public class MemoryController {
     @GetMapping("/short/{sessionId}")
     public List<ChatMessage> getShortTerm(@PathVariable String sessionId) {
         return memoryService.getShortTerm(sessionId, 20);
+    }
+
+    @GetMapping("/short")
+    public Map<String, List<ChatMessage>> getAllShortTerm() {
+        return memoryService.getAllShortTerm();
+    }
+
+    @DeleteMapping("/short")
+    public Map<String, String> clearAllShortTerm() {
+        memoryService.clearAllShortTerm();
+        return Map.of("status", "ok");
     }
 
     @DeleteMapping("/short/{sessionId}")

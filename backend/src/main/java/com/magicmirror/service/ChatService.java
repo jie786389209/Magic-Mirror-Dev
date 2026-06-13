@@ -58,7 +58,7 @@ public class ChatService {
     /**
      * 流式对话（支持 Function Calling）
      */
-    public void chatStream(String userMessage, List<ChatMessage> history, boolean ragEnabled, Consumer<String> onChunk) {
+    public void chatStream(String userMessage, List<ChatMessage> history, boolean ragEnabled, String sessionId, Consumer<String> onChunk) {
         // 用于缓冲 assistant 纯文本回复（不含标记和工具输出）
         StringBuilder assistantBuffer = new StringBuilder();
         Consumer<String> wrappedOnChunk = chunk -> {
@@ -83,14 +83,14 @@ public class ChatService {
             skillEngine.execute(skill, params, wrappedOnChunk, null);
             String buf = assistantBuffer.toString().trim();
             if (!buf.isEmpty()) {
-                memoryService.saveShortTerm("default",
+                memoryService.saveShortTerm(sessionId,
                         ChatMessage.builder().role("assistant").content(buf).build());
             }
             return;
         }
 
         // 保存用户消息到短期记忆
-        memoryService.saveShortTerm("default",
+        memoryService.saveShortTerm(sessionId,
                 ChatMessage.builder().role("user").content(userMessage).build());
 
         // 自动升级：包含 "记住" / "我是" / "项目" 关键词的消息升级为长期记忆
@@ -123,13 +123,13 @@ public class ChatService {
                 String callId = tc.containsKey("id") ? (String) tc.get("id") : "call_" + System.currentTimeMillis();
 
                 // 保存工具调用到短期记忆
-                memoryService.saveShortTerm("default",
+                memoryService.saveShortTerm(sessionId,
                         ChatMessage.builder().role("assistant").content("")
                                 .toolCalls(List.of(Map.of("id", callId,
                                         "type", "function",
                                         "function", Map.of("name", toolName))))
                                 .build());
-                memoryService.saveShortTerm("default",
+                memoryService.saveShortTerm(sessionId,
                         ChatMessage.builder().role("tool").content(result.result())
                                 .toolCallId(callId).toolName(toolName).build());
 
@@ -162,7 +162,7 @@ public class ChatService {
         // 保存 assistant 完整回复到短期记忆
         String fullReply = assistantBuffer.toString().trim();
         if (!fullReply.isEmpty()) {
-            memoryService.saveShortTerm("default",
+            memoryService.saveShortTerm(sessionId,
                     ChatMessage.builder().role("assistant").content(fullReply).build());
         }
     }
@@ -304,7 +304,11 @@ public class ChatService {
 
         // RAG：仅在开关开启时检索
         if (ragEnabled) {
-            var docResults = documentService.search(userMessage, 3);
+            var docResults = documentService.search(userMessage, 5);
+            docResults = docResults.stream().filter(d -> {
+                Object score = d.get("score");
+                return score instanceof Number && ((Number) score).doubleValue() >= 0.7;
+            }).limit(3).toList();
             if (!docResults.isEmpty()) {
             StringBuilder ragCtx = new StringBuilder("## 参考文档\n");
             for (var doc : docResults) {

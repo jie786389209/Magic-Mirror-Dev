@@ -49,6 +49,7 @@ public class ChatController {
                         request.getMessage(),
                         request.getHistory(),
                         request.isRagEnabled(),
+                        request.getSessionId() != null ? request.getSessionId() : "default",
                         chunk -> {
                             try {
                                 emitter.send(SseEmitter.event().name("chunk")

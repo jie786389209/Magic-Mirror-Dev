@@ -137,6 +137,29 @@ public class MemoryService {
         }
     }
 
+    /** 获取所有 session 的短期记忆 */
+    public Map<String, List<ChatMessage>> getAllShortTerm() {
+        Map<String, List<ChatMessage>> result = new LinkedHashMap<>();
+        try {
+            var keys = redis.keys(REDIS_PREFIX + "short:*");
+            if (keys != null) {
+                for (String key : keys) {
+                    String sid = key.substring((REDIS_PREFIX + "short:").length());
+                    var msgs = getShortTerm(sid, 50);
+                    if (!msgs.isEmpty()) result.put(sid, msgs);
+                }
+            }
+        } catch (Exception ignored) {}
+        return result;
+    }
+
+    public void clearAllShortTerm() {
+        try {
+            var keys = redis.keys(REDIS_PREFIX + "short:*");
+            if (keys != null && !keys.isEmpty()) redis.delete(keys);
+        } catch (Exception ignored) {}
+    }
+
     public void clearShortTerm(String sessionId) {
         String key = REDIS_PREFIX + "short:" + sessionId;
         redis.opsForList().trim(key, 1, 0);
@@ -320,9 +343,10 @@ public class MemoryService {
         }
 
         var longMem = searchLongTerm(userMessage, MAX_LONG_TERM_RESULTS);
-        if (!longMem.isEmpty()) {
+        var relevant = longMem.stream().filter(m -> m.getSimilarity() >= 0.9).toList();
+        if (!relevant.isEmpty()) {
             ctx.append("\n## 相关长期记忆\n");
-            longMem.forEach(m -> ctx.append("- ").append(m.getContent())
+            relevant.forEach(m -> ctx.append("- ").append(m.getContent())
                     .append(String.format(" (%.0f%%)\n", m.getSimilarity() * 100)));
         }
         return ctx.toString();

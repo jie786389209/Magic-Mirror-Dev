@@ -28,5 +28,7 @@ public class ChatRequest {
     private Integer maxTokens;
 
     @Builder.Default
-    private boolean ragEnabled = false; // 是否启用知识库检索
+    private boolean ragEnabled = false;
+
+    private String sessionId;
 }
