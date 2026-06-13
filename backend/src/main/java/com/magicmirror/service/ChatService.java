@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.magicmirror.config.DeepSeekProperties;
+import com.magicmirror.memory.MemoryService;
 import com.magicmirror.model.ChatMessage;
 import com.magicmirror.skill.SkillEngine;
 import com.magicmirror.tool.api.ToolExecutor;
@@ -27,16 +28,18 @@ public class ChatService {
     private final ToolRegistry toolRegistry;
     private final ToolExecutor toolExecutor;
     private final SkillEngine skillEngine;
+    private final MemoryService memoryService;
     private final ObjectMapper objectMapper;
     private final RestTemplate restTemplate;
 
     public ChatService(DeepSeekProperties properties, ToolRegistry toolRegistry,
                        ToolExecutor toolExecutor, SkillEngine skillEngine,
-                       ObjectMapper objectMapper) {
+                       MemoryService memoryService, ObjectMapper objectMapper) {
         this.properties = properties;
         this.toolRegistry = toolRegistry;
         this.toolExecutor = toolExecutor;
         this.skillEngine = skillEngine;
+        this.memoryService = memoryService;
         this.objectMapper = objectMapper;
         this.restTemplate = createRestTemplate();
     }
@@ -52,15 +55,46 @@ public class ChatService {
      * 流式对话（支持 Function Calling）
      */
     public void chatStream(String userMessage, List<ChatMessage> history, Consumer<String> onChunk) {
+        // 用于缓冲 assistant 纯文本回复（不含标记和工具输出）
+        StringBuilder assistantBuffer = new StringBuilder();
+        Consumer<String> wrappedOnChunk = chunk -> {
+            String c = chunk.trim();
+            if (!c.startsWith("[THINK]") && !c.startsWith("[/THINK]")
+                    && !c.startsWith("[TOOL_") && !c.startsWith("[SKILL]")
+                    && !c.startsWith("[/SKILL]") && !c.startsWith("🔧")
+                    && !c.startsWith("结果:") && !c.startsWith("\n🔧")
+                    && !c.startsWith("\n结果:") && !c.isEmpty()) {
+                assistantBuffer.append(chunk);
+            }
+            onChunk.accept(chunk);
+        };
+
         // Step 0: 尝试匹配 Skill
         var matchedSkill = skillEngine.match(userMessage);
         if (matchedSkill.isPresent()) {
             var skill = matchedSkill.get();
             log.info("Skill matched: {}", skill.getName());
-            onChunk.accept("[SKILL]" + skill.getName() + "[/SKILL]");
+            wrappedOnChunk.accept("[SKILL]" + skill.getName() + "[/SKILL]");
             var params = skillEngine.extractParams(skill, userMessage);
-            skillEngine.execute(skill, params, onChunk, null);
+            skillEngine.execute(skill, params, wrappedOnChunk, null);
+            String buf = assistantBuffer.toString().trim();
+            if (!buf.isEmpty()) {
+                memoryService.saveShortTerm("default",
+                        ChatMessage.builder().role("assistant").content(buf).build());
+            }
             return;
+        }
+
+        // 保存用户消息到短期记忆
+        memoryService.saveShortTerm("default",
+                ChatMessage.builder().role("user").content(userMessage).build());
+
+        // 自动升级：包含 "记住" / "我是" / "项目" 关键词的消息升级为长期记忆
+        boolean shouldRemember = userMessage.contains("记住") || userMessage.contains("我是")
+                || userMessage.contains("项目用") || userMessage.contains("偏好");
+        if (shouldRemember) {
+            memoryService.saveLongTerm(userMessage);
+            log.info("Auto-promoted to long-term memory: {}", userMessage.substring(0, Math.min(60, userMessage.length())));
         }
 
         List<Map<String, Object>> messages = buildMessages(userMessage, history);
@@ -69,7 +103,7 @@ public class ChatService {
         var toolCallResult = callWithTools(messages);
         if (!toolCallResult.toolCalls.isEmpty()) {
             log.info("DeepSeek requested {} tool call(s)", toolCallResult.toolCalls.size());
-            onChunk.accept("[TOOL_START]");
+            wrappedOnChunk.accept("[TOOL_START]");
 
             // 执行工具
             for (var tc : toolCallResult.toolCalls) {
@@ -79,10 +113,21 @@ public class ChatService {
                 var result = toolExecutor.execute(toolName, args);
                 log.info("Tool result: {} -> {}", toolName, result.result());
 
-                onChunk.accept("\n🔧 调用工具: **" + toolName + "**");
-                onChunk.accept("\n结果: " + result.result() + "\n\n");
+                wrappedOnChunk.accept("\n🔧 调用工具: **" + toolName + "**");
+                wrappedOnChunk.accept("\n结果: " + result.result() + "\n\n");
 
                 String callId = tc.containsKey("id") ? (String) tc.get("id") : "call_" + System.currentTimeMillis();
+
+                // 保存工具调用到短期记忆
+                memoryService.saveShortTerm("default",
+                        ChatMessage.builder().role("assistant").content("")
+                                .toolCalls(List.of(Map.of("id", callId,
+                                        "type", "function",
+                                        "function", Map.of("name", toolName))))
+                                .build());
+                memoryService.saveShortTerm("default",
+                        ChatMessage.builder().role("tool").content(result.result())
+                                .toolCallId(callId).toolName(toolName).build());
 
                 // 将工具调用和结果加入消息（保留 reasoning_content）
                 Map<String, Object> assistantMsg = new LinkedHashMap<>();
@@ -100,16 +145,21 @@ public class ChatService {
                 messages.add(Map.of("role", "tool", "content", result.result(),
                         "tool_call_id", callId));
             }
-            onChunk.accept("[TOOL_END]");
+            wrappedOnChunk.accept("[TOOL_END]");
 
             // Step 2: 带上工具结果再次调用（thinking 保持开启）
-            streamResponse(messages, onChunk, true);
+            streamResponse(messages, wrappedOnChunk, true);
         } else if (toolCallResult.content != null) {
-            // 无工具调用，直接输出内容
-            onChunk.accept(toolCallResult.content);
+            wrappedOnChunk.accept(toolCallResult.content);
         } else {
-            // 纯流式输出
-            streamResponse(messages, onChunk, true);
+            streamResponse(messages, wrappedOnChunk, true);
+        }
+
+        // 保存 assistant 完整回复到短期记忆
+        String fullReply = assistantBuffer.toString().trim();
+        if (!fullReply.isEmpty()) {
+            memoryService.saveShortTerm("default",
+                    ChatMessage.builder().role("assistant").content(fullReply).build());
         }
     }
 
@@ -172,6 +222,7 @@ public class ChatService {
         log.info("DeepSeek stream request: {}", toPrettyJson(body));
 
         StringBuilder streamLog = new StringBuilder();
+        StringBuilder thinkBuf = new StringBuilder();
         try {
             restTemplate.execute(properties.getApiUrl(), HttpMethod.POST,
                     request -> {
@@ -186,7 +237,7 @@ public class ChatService {
                             while ((line = reader.readLine()) != null) {
                                 if (line.startsWith("data: ")) {
                                     String data = line.substring(6);
-                                    if (streamLog.length() < 5_000) {
+                                    if (streamLog.length() < 20_000) {
                                         streamLog.append(data).append("\n");
                                     }
                                     if ("[DONE]".equals(data)) break;
@@ -198,11 +249,16 @@ public class ChatService {
                                             if (delta != null) {
                                                 JsonNode content = delta.get("content");
                                                 if (content != null && !content.isNull()) {
+                                                    // 先刷出缓存的 thinking（一次性）
+                                                    if (!thinkBuf.isEmpty()) {
+                                                        onChunk.accept("[THINK]" + thinkBuf + "[/THINK]");
+                                                        thinkBuf.setLength(0);
+                                                    }
                                                     onChunk.accept(content.asText());
                                                 }
                                                 JsonNode reasoning = delta.get("reasoning_content");
                                                 if (reasoning != null && !reasoning.isNull()) {
-                                                    onChunk.accept("[THINK]" + reasoning.asText() + "[/THINK]");
+                                                    thinkBuf.append(reasoning.asText());
                                                 }
                                             }
                                         }
@@ -214,6 +270,10 @@ public class ChatService {
                         }
                         return null;
                     });
+            // 兜底：flush 剩余的 thinking
+            if (!thinkBuf.isEmpty()) {
+                onChunk.accept("[THINK]" + thinkBuf + "[/THINK]");
+            }
             log.info("DeepSeek stream response ({} chars):\n{}", streamLog.length(), streamLog);
         } catch (Exception e) {
             log.error("Stream error", e);
@@ -223,16 +283,21 @@ public class ChatService {
 
     private List<Map<String, Object>> buildMessages(String userMessage, List<ChatMessage> history) {
         List<Map<String, Object>> messages = new ArrayList<>();
-        messages.add(Map.of("role", "system", "content", """
+
+        // 构建系统提示（含记忆上下文）
+        String memoryCtx = memoryService.buildMemoryContext("default", userMessage);
+        String systemPrompt = """
             你是一个专业的 AI 开发助手，具备工具调用能力。
             当用户的问题需要计算、查询时间或搜索代码时，请主动调用对应工具。
             工具调用后，基于工具返回的结果给出清晰的回答。
             请严格遵守 Markdown 格式规范：
-            - 列表项（- 或 1.）独占一行
-            - 标题（## 等）前后有空行
-            - 表格每行必须独占一行，用换行符分隔
-            - 代码块前后有空行
-            请用中文回答。"""));
+            - 列表项独占一行、标题前后有空行、表格每行独占一行、代码块前后有空行。
+            请用中文回答。""";
+
+        if (!memoryCtx.isEmpty()) {
+            systemPrompt = memoryCtx + "\n---\n" + systemPrompt;
+        }
+        messages.add(Map.of("role", "system", "content", systemPrompt));
 
         for (ChatMessage msg : history) {
             messages.add(Map.of("role", msg.getRole(), "content", msg.getContent()));
