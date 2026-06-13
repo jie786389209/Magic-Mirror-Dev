@@ -1,0 +1,52 @@
+/* ============================================
+   Magic Mirror Dev — 过渡动画
+   ============================================ */
+
+/* ── 淡入淡出 ── */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity var(--transition-normal);
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+/* ── 从下淡入 ── */
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition: all var(--transition-normal);
+}
+.slide-up-enter-from {
+  opacity: 0;
+  transform: translateY(12px);
+}
+.slide-up-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+/* ── 面板滑入 ── */
+.panel-slide-enter-active,
+.panel-slide-leave-active {
+  transition: transform var(--transition-normal), opacity var(--transition-normal);
+}
+.panel-slide-enter-from,
+.panel-slide-leave-to {
+  opacity: 0;
+}
+.panel-slide-enter-from {
+  transform: translateX(100%);
+}
+.panel-slide-leave-to {
+  transform: translateX(100%);
+}
+
+/* ── 消息入场 ── */
+.message-enter-active {
+  transition: all var(--transition-normal) ease-out;
+}
+.message-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
