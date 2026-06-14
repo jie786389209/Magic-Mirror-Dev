@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.magicmirror.config.DeepSeekProperties;
+import com.magicmirror.graph.GraphService;
 import com.magicmirror.memory.MemoryService;
 import com.magicmirror.model.ChatMessage;
 import com.magicmirror.rag.DocumentService;
@@ -31,19 +32,21 @@ public class ChatService {
     private final SkillEngine skillEngine;
     private final MemoryService memoryService;
     private final DocumentService documentService;
+    private final GraphService graphService;
     private final ObjectMapper objectMapper;
     private final RestTemplate restTemplate;
 
     public ChatService(DeepSeekProperties properties, ToolRegistry toolRegistry,
                        ToolExecutor toolExecutor, SkillEngine skillEngine,
                        MemoryService memoryService, DocumentService documentService,
-                       ObjectMapper objectMapper) {
+                       GraphService graphService, ObjectMapper objectMapper) {
         this.properties = properties;
         this.toolRegistry = toolRegistry;
         this.toolExecutor = toolExecutor;
         this.skillEngine = skillEngine;
         this.memoryService = memoryService;
         this.documentService = documentService;
+        this.graphService = graphService;
         this.objectMapper = objectMapper;
         this.restTemplate = createRestTemplate();
     }
@@ -304,19 +307,58 @@ public class ChatService {
 
         // RAG：仅在开关开启时检索
         if (ragEnabled) {
+            log.info("=== RAG 检索开始 query={} ===", userMessage);
+            StringBuilder ragCtx = new StringBuilder();
+
+            // 1. 长期记忆
+            var longMemResults = memoryService.searchLongTerm(userMessage, 5);
+            log.info("[记忆] 检索到 {} 条，阈值≥90%:", longMemResults.size());
+            var relevantMem = longMemResults.stream().filter(m -> {
+                boolean pass = m.getSimilarity() >= 0.9;
+                log.info("  - 相似度={:.0f}% {} → {}", m.getSimilarity() * 100, pass ? "✓采纳" : "✗跳过",
+                        m.getContent().substring(0, Math.min(40, m.getContent().length())));
+                return pass;
+            }).toList();
+            if (!relevantMem.isEmpty()) {
+                ragCtx.append("## 相关长期记忆\n");
+                relevantMem.forEach(m -> ragCtx.append("- ").append(m.getContent()).append("\n"));
+            }
+
+            // 2. Chroma 向量检索
             var docResults = documentService.search(userMessage, 5);
+            log.info("[Chroma] 检索到 {} 条，阈值≥85%:", docResults.size());
             docResults = docResults.stream().filter(d -> {
                 Object score = d.get("score");
-                return score instanceof Number && ((Number) score).doubleValue() >= 0.7;
+                boolean pass = score instanceof Number && ((Number) score).doubleValue() >= 0.85;
+                double sim = score instanceof Number ? ((Number) score).doubleValue() : 0;
+                log.info("  - 相似度={:.0f}% {} → {}",
+                        sim * 100, pass ? "✓采纳" : "✗跳过",
+                        String.valueOf(d.get("content")).substring(0, Math.min(50, String.valueOf(d.get("content")).length())));
+                return pass;
             }).limit(3).toList();
             if (!docResults.isEmpty()) {
-            StringBuilder ragCtx = new StringBuilder("## 参考文档\n");
-            for (var doc : docResults) {
-                ragCtx.append(String.format("- [%s] %s\n",
-                        doc.getOrDefault("filename", ""),
-                        doc.get("content")));
+                ragCtx.append("## 参考文档\n");
+                for (var doc : docResults) {
+                    ragCtx.append(String.format("- [%s] %s\n",
+                            doc.getOrDefault("filename", ""), doc.get("content")));
+                }
             }
+
+            // 3. Neo4j 图检索
+            var graphEntities = graphService.findRelevantEntities(userMessage, 5);
+            log.info("[Neo4j] 检索到 {} 个实体: {}", graphEntities.size(), graphEntities);
+            if (!graphEntities.isEmpty()) {
+                ragCtx.append("## 相关实体\n");
+                for (String e : graphEntities) {
+                    ragCtx.append("- ").append(e).append("\n");
+                }
+            }
+
+            if (!ragCtx.isEmpty()) {
+                log.info("[RAG] 共 {} 条注入 Prompt", ragCtx.toString().split("\n").length);
                 systemPrompt = ragCtx + "\n---\n" + systemPrompt;
+            } else {
+                log.info("[RAG] 无匹配结果，不注入 Prompt");
             }
         }
 
