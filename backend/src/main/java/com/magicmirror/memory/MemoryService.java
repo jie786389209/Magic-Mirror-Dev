@@ -188,12 +188,14 @@ public class MemoryService {
     public void clearLongTerm() {
         if (collectionId == null) return;
         try {
-            var req = HttpRequest.newBuilder()
-                    .uri(URI.create(chromaUrl + CHROMA_BASE + "/collections/" + collectionId))
-                    .DELETE().build();
-            httpClient.send(req, HttpResponse.BodyHandlers.ofString());
-            collectionId = null;
-            initChromaCollection();
+            var delBody = objectMapper.writeValueAsString(Map.of(
+                    "where", Map.of("timestamp", Map.of("$ne", "__none__"))
+            ));
+            var delReq = HttpRequest.newBuilder()
+                    .uri(URI.create(chromaUrl + CHROMA_BASE + "/collections/" + collectionId + "/delete"))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(delBody)).build();
+            httpClient.send(delReq, HttpResponse.BodyHandlers.ofString());
             log.info("Long-term memory cleared");
         } catch (Exception e) {
             log.warn("Chroma clear failed: {}", e.getMessage());

@@ -2,6 +2,8 @@ package com.magicmirror.rag;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.magicmirror.graph.EntityExtractor;
+import com.magicmirror.graph.GraphService;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.text.PDFTextStripper;
@@ -11,6 +13,9 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.*;
 import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -18,7 +23,6 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
-import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -31,6 +35,8 @@ public class DocumentService {
 
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
+    private final EntityExtractor entityExtractor;
+    private final GraphService graphService;
     private final String chromaUrl;
     private final String embeddingApiKey;
     private final String embeddingApiUrl;
@@ -39,12 +45,16 @@ public class DocumentService {
     private String collectionId;
 
     public DocumentService(ObjectMapper objectMapper,
+                           EntityExtractor entityExtractor,
+                           GraphService graphService,
                            @Value("${chroma.url:http://localhost:8000}") String chromaUrl,
                            @Value("${embedding.api-key:XQ7CFI58PHGIYNTNVEHUPRDRE9CQLQDPYN7F8W15}") String embeddingApiKey,
                            @Value("${embedding.api-url:https://ai.gitee.com/v1/embeddings}") String embeddingApiUrl,
                            @Value("${embedding.model:Qwen3-Embedding-8B}") String embeddingModel,
                            @Value("${embedding.dimensions:1024}") int embeddingDimensions) {
         this.objectMapper = objectMapper;
+        this.entityExtractor = entityExtractor;
+        this.graphService = graphService;
         this.chromaUrl = chromaUrl;
         this.embeddingApiKey = embeddingApiKey;
         this.embeddingApiUrl = embeddingApiUrl;
@@ -91,7 +101,13 @@ public class DocumentService {
     /** 上传并索引文档 */
     public String upload(MultipartFile file) throws Exception {
         String filename = file.getOriginalFilename();
+        if (filename == null) filename = "unknown";
         String content = parseFile(file);
+
+        // 保存原始文件
+        Path uploadsDir = Paths.get("uploads");
+        Files.createDirectories(uploadsDir);
+        Files.write(uploadsDir.resolve(filename), file.getBytes());
 
         // 分段
         List<String> chunks = splitChunks(content);
@@ -123,6 +139,15 @@ public class DocumentService {
         httpClient.send(req, HttpResponse.BodyHandlers.ofString());
 
         log.info("Document indexed: {} ({} chunks)", filename, chunks.size());
+
+        // 异步抽取实体 → Neo4j
+        String docId = filename != null ? filename : UUID.randomUUID().toString();
+        try {
+            var entities = entityExtractor.extract(content);
+            var stats = graphService.storeEntities(docId, entities);
+            log.info("Graph entities: {} entities, {} relations", stats.get("entities"), stats.get("relations"));
+        } catch (Exception e) { log.warn("Entity extraction failed: {}", e.getMessage()); }
+
         return String.format("已索引 %s，共 %d 个片段", filename, chunks.size());
     }
 
@@ -186,10 +211,23 @@ public class DocumentService {
     public void clear() {
         if (collectionId == null) return;
         try {
-            var req = HttpRequest.newBuilder().uri(URI.create(chromaUrl + CHROMA_BASE + "/collections/" + collectionId)).DELETE().build();
-            httpClient.send(req, HttpResponse.BodyHandlers.ofString());
-            collectionId = null;
-            initCollection();
+            // Chroma v2 删全部文档：where 匹配所有
+            var delBody = objectMapper.writeValueAsString(Map.of(
+                    "where", Map.of("filename", Map.of("$ne", "__none__"))
+            ));
+            var delReq = HttpRequest.newBuilder()
+                    .uri(URI.create(chromaUrl + CHROMA_BASE + "/collections/" + collectionId + "/delete"))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(delBody)).build();
+            httpClient.send(delReq, HttpResponse.BodyHandlers.ofString());
+
+            // 删除上传文件
+            Path uploads = Paths.get("uploads");
+            if (Files.exists(uploads)) {
+                try (var files = Files.list(uploads)) {
+                    files.forEach(f -> { try { Files.deleteIfExists(f); } catch (Exception ignored) {} });
+                }
+            }
         } catch (Exception ignored) {}
     }
 

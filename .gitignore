@@ -27,5 +27,8 @@ Thumbs.db
 *.log
 application-local.yml
 
+# Uploads
+backend/uploads/
+
 # Maven
 .mvn/wrapper/maven-wrapper.jar

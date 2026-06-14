@@ -3,16 +3,37 @@ import { ref, onMounted } from 'vue'
 
 interface DocResult { content: string; score: number; filename: string }
 
-const activeTab = ref<'upload' | 'search'>('upload')
+const activeTab = ref<'upload' | 'search' | 'graph'>('upload')
 const docCount = ref(0)
 const uploading = ref(false)
 const uploadMsg = ref('')
+const graphStats = ref({ entities: 0, relations: 0 })
+const graphQuery = ref('')
+const graphRelFilter = ref('')
+const graphResults = ref<any[]>([])
 
 const searchQuery = ref('')
 const searchResults = ref<DocResult[]>([])
 const searching = ref(false)
 
-onMounted(loadCount)
+onMounted(() => { loadCount(); loadGraphStats() })
+
+async function loadGraphStats() {
+  try { const r = await fetch('/api/graph/stats'); graphStats.value = await r.json() } catch {}
+}
+
+async function searchGraph() {
+  if (!graphQuery.value.trim()) return
+  const params = new URLSearchParams({ query: graphQuery.value })
+  if (graphRelFilter.value.trim()) params.set('relType', graphRelFilter.value.trim())
+  try { const r = await fetch(`/api/graph/search?${params}`); graphResults.value = await r.json() } catch {}
+}
+
+async function clearGraph() {
+  await fetch('/api/graph', { method: 'DELETE' })
+  graphStats.value = { entities: 0, relations: 0 }
+  graphResults.value = []
+}
 
 async function loadCount() {
   try { const r = await fetch('/api/documents/count'); docCount.value = (await r.json()).count || 0 } catch {}
@@ -62,6 +83,7 @@ async function onClear() {
     <div class="tabs">
       <button class="tab" :class="{ active: activeTab === 'upload' }" @click="activeTab = 'upload'">上传文档</button>
       <button class="tab" :class="{ active: activeTab === 'search' }" @click="activeTab = 'search'">搜索文档</button>
+      <button class="tab" :class="{ active: activeTab === 'graph' }" @click="activeTab = 'graph'; loadGraphStats()">知识图谱</button>
     </div>
 
     <!-- 上传 -->
@@ -96,6 +118,39 @@ async function onClear() {
         </div>
       </div>
       <div v-else class="empty">搜索知识库中的文档内容</div>
+    </div>
+
+    <!-- 知识图谱 -->
+    <div v-show="activeTab === 'graph'">
+      <div class="tab-head">
+        <span class="count">{{ graphStats.entities }} 实体 · {{ graphStats.relations }} 关系 · Neo4j</span>
+        <button v-if="graphStats.entities > 0" class="clear-btn" @click="clearGraph">清空</button>
+      </div>
+      <div class="search-row">
+        <input v-model="graphQuery" class="search-input" placeholder="搜索实体..." @keyup.enter="searchGraph" />
+        <input v-model="graphRelFilter" class="rel-filter" placeholder="关系过滤(可选)" @keyup.enter="searchGraph" />
+        <button class="search-btn" @click="searchGraph">搜索</button>
+      </div>
+      <div v-if="graphResults.length" class="graph-list">
+        <div v-for="item in graphResults" :key="item.entity" class="entity-card">
+          <div class="entity-name">{{ item.type === 'Person' ? '👤' : item.type === 'Tech' ? '💻' : '📦' }} {{ item.entity }}</div>
+          <span class="entity-type">{{ item.type }}</span>
+          <!-- 1-hop -->
+          <div v-if="item.relations?.length" class="entity-rels">
+            <span class="hop-label">1-hop:</span>
+            <span v-for="(r, ri) in item.relations" :key="'r1'+ri" class="rel-tag">
+              ──{{ r.rel.replace(/_+/g, '·') }}──▶ {{ r.target }}
+            </span>
+          </div>
+          <!-- 2-hop -->
+          <div v-if="item.twoHop?.length" class="entity-rels two-hop">
+            <span class="hop-label">2-hop:</span>
+            <span v-for="(r, ri) in item.twoHop" :key="'r2'+ri" class="rel-tag">
+              {{ r.from }} ──{{ r.rel.replace(/_+/g, '·') }}──▶ {{ r.target }}
+            </span>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -133,4 +188,16 @@ async function onClear() {
 .result-file { font-size: var(--text-xs); color: var(--accent-link); }
 .result-score { font-size: var(--text-xs); font-weight: 600; color: var(--accent); }
 .result-content { font-size: var(--text-sm); color: var(--text-muted); line-height: 1.5; white-space: pre-wrap; }
+
+/* Graph */
+.graph-list { display: flex; flex-direction: column; gap: var(--space-3); }
+.entity-card { background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: var(--space-3); }
+.entity-name { font-size: var(--text-base); font-weight: 600; color: var(--text-primary); margin-bottom: 2px; }
+.entity-type { font-size: 10px; padding: 1px 6px; border-radius: 8px; background: var(--accent-glow); color: var(--accent); }
+.rel-filter { width: 120px; background: var(--bg-raised); border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); color: var(--text-primary); font-size: var(--text-sm); outline: none; flex-shrink: 0; }
+.rel-filter:focus { border-color: var(--accent-link); }
+.entity-rels { margin-top: var(--space-2); display: flex; gap: var(--space-1); flex-wrap: wrap; align-items: center; }
+.entity-rels.two-hop { opacity: 0.75; }
+.hop-label { font-size: 10px; color: var(--text-subtle); margin-right: 2px; }
+.rel-tag { font-size: 11px; padding: 1px 8px; border-radius: 10px; background: rgba(56,189,248,0.1); color: var(--accent-link); }
 </style>
